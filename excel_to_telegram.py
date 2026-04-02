@@ -6,6 +6,7 @@ import prettytable as pt
 import sys
 from telethon import TelegramClient
 import telethon.sync
+import asyncio
 
 # pip install openpyxl prettytable telethon
 
@@ -39,33 +40,39 @@ logging.debug(f"data: {data}")
 print(f"data: {data}")
 
 def create_table(cells):
+    logging.debug(f"create_table - cells: {cells}")
+    if not cells:
+        return "Empty Data"
 
-  logging.debug(f"create_table - cells: {cells}")
+    # Use the first row values as headers
+    first_row = cells[0]
+    headers = []
+    for k in first_row:
+        val = str(first_row[k]).strip()
+        # If the cell is empty, use the column ID (e.g., 'c5') so it doesn't crash
+        headers.append(val if val else k) 
 
-  # Use the first row of the cells as the headers of the prettytable
-  r=cells[0]
-  headers=[]
-  for k in r:
-    print(f"{k} - {r[k]}")
-    headers.append(r[k])
+    table = pt.PrettyTable(headers)
+    
+    # Set alignment safely for each header
+    for h in headers:
+        try:
+            table.align[h] = 'l'
+        except:
+            pass
 
-  # Create a formattable table for Telegram
-  table = pt.PrettyTable(headers)
-  for k in r:
-    table.align[r[k]] = 'l'
-
-  # Add the Array data to the prettytable
-  n=0
-  for r in cells:
-    n+=1
-    if n==1: continue
-    a=[]
-    for k in r:
-      # logging.debug(f"{k} - {r[k]}\r\n")
-      # print(f"{k} - {r[k]}")
-      a.append(r[k])
-    table.add_row(a)
-  return table
+    # Add the data rows
+    for i, r in enumerate(cells):
+        if i == 0: continue # Skip the header row (already used for headers)
+        row_data = []
+        for k in r:
+            row_data.append(r[k])
+        
+        # Only add the row if it matches the header length
+        if len(row_data) == len(headers):
+            table.add_row(row_data)
+            
+    return table
 # create_table
 
 def get_param(name,wb):
@@ -91,41 +98,44 @@ def get_params():
   wb.close()
 # get_params
 
-if __name__ == '__main__':
+async def main():
+    # 1. Load Parameters from Excel
+    get_params()
 
-  # Get the parameters
-  get_params()
-
-  # Connect to Telegram
-  # logging.debug("TelegramClient {API_ID} {API_HASH} {Channel}")
-  client = TelegramClient(name, API_ID, API_HASH)
-  
-  try:
-  
-    # Start the connection
-    logging.debug("client.start")
-    client.start()
-      
-    if sys.argv[1].lower()!='init':
-      # Get json from data
-      # logging.debug("get json=cells")
-      cells=json.loads(data)
-
-      # Create the table
-      # logging.debug("create_table")
-      table=create_table(cells)
-      
-      # Get the entity of the selected channel
-      # logging.debug(f"get_entity {Channel}")
-      entity = client.get_entity(Channel)
-      logging.debug(f"got entity {entity} for Channel {Channel}")
-
-      # Send the table to Telegram
-      client.send_message(entity, 
-      f'<pre>{table}</pre>',parse_mode='html')
-      
-      logging.debug("Sending Done.")
+    # 2. Setup the Telegram Client
+    client = TelegramClient(name, API_ID, API_HASH)
     
-  finally:
-    print("Disconnect...")
-    client.disconnect()
+    try:
+        logging.debug("Starting Telegram Client...")
+        await client.start()
+          
+        # Check if we have data from Excel (sys.argv[1])
+        if len(sys.argv) > 1 and sys.argv[1].lower() != 'init':
+            # Convert the Excel string into a Python list
+            cells = json.loads(sys.argv[1])
+
+            # Build the table using the function from Step 1
+            table = create_table(cells)
+            
+            # Find the Telegram Channel
+            entity = await client.get_entity(Channel)
+            
+            # Send the message
+            await client.send_message(entity, f'<pre>{table}</pre>', parse_mode='html')
+            logging.debug("Message sent successfully!")
+            print("Done! Check your Telegram channel.")
+            
+            # Short pause to ensure the message is fully sent before disconnecting
+            await asyncio.sleep(1)
+        else:
+            print("Logged in successfully! No data sent (init mode).")
+        
+    except Exception as e:
+        logging.error(f"Error occurred: {e}")
+        print(f"Error: {e}")
+    finally:
+        await client.disconnect()
+
+if __name__ == '__main__':
+    # This line is the 'engine' that runs everything above
+    asyncio.run(main())
